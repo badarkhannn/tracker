@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef } from "react";
 
-const STORE_KEY = "tempo_sessions_v1";
-
 const pad = (n) => String(n).padStart(2, "0");
 const fmtHMS = (ms) => {
   const s = Math.floor(ms / 1000);
@@ -20,6 +18,11 @@ const MSHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov
 const DSHORT = ["S","M","T","W","T","F","S"];
 
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginForm, setLoginForm] = useState({ username: "", password: "" });
+  const [loginError, setLoginError] = useState("");
+
   const [sessions, setSessions] = useState([]);
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -29,20 +32,69 @@ export default function App() {
   const [calMonth, setCalMonth] = useState(new Date());
   const [viewDate, setViewDate] = useState(new Date());
   const [loaded, setLoaded] = useState(false);
+  
+  // Auto-updating today string
+  const [todayStr, setTodayStr] = useState(toDate(new Date()));
 
   const timerRef = useRef(null);
   const startRef = useRef(null);
   const baseRef = useRef(0);
 
+  // Check auth and update today every minute
   useEffect(() => {
+    checkAuth();
+    const interval = setInterval(() => {
+      const now = new Date();
+      setTodayStr(toDate(now));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const checkAuth = async () => {
     try {
-      const r = localStorage.getItem(STORE_KEY);
-      if (r) setSessions(JSON.parse(r));
+      const res = await fetch('/api/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data.user);
+        fetchSessions();
+      }
+    } catch (e) {}
+    setAuthLoading(false);
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginError("");
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginForm),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUser(data.user);
+        fetchSessions();
+      } else {
+        setLoginError("Invalid credentials");
+      }
+    } catch (e) {
+      setLoginError("Connection error");
+    }
+  };
+
+  const fetchSessions = async () => {
+    try {
+      const res = await fetch('/api/sessions');
+      if (res.ok) {
+        const data = await res.json();
+        setSessions(data);
+      }
     } catch (e) {
       console.error("Failed to load sessions", e);
     }
     setLoaded(true);
-  }, []);
+  };
 
   useEffect(() => {
     if (running && !paused) {
@@ -53,10 +105,19 @@ export default function App() {
     return () => clearInterval(timerRef.current);
   }, [running, paused]);
 
-  const save = (updated) => {
-    setSessions(updated);
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(updated)); } catch (e) {
-        console.error("Failed to save sessions", e);
+  const saveSession = async (s) => {
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(s),
+      });
+      if (res.ok) {
+        const saved = await res.json();
+        setSessions([saved, ...sessions]);
+      }
+    } catch (e) {
+      console.error("Failed to save session", e);
     }
   };
 
@@ -78,22 +139,27 @@ export default function App() {
     clearInterval(timerRef.current);
     if (elapsed >= 3000) {
       const s = {
-        id: String(Date.now()),
         task: task.trim() || "Work Session",
         start: sessionStart.toISOString(),
         end: new Date().toISOString(),
         duration: elapsed,
         date: toDate(new Date()),
       };
-      save([s, ...sessions]);
+      saveSession(s);
     }
     setRunning(false); setPaused(false); setElapsed(0); setTask("");
     baseRef.current = 0;
   };
 
-  const delSession = (id) => save(sessions.filter((s) => s.id !== id));
+  const delSession = async (id) => {
+    try {
+      const res = await fetch(`/api/sessions?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setSessions(sessions.filter((s) => s._id !== id));
+      }
+    } catch (e) {}
+  };
 
-  const todayStr = toDate(new Date());
   const todaySessions = sessions.filter((s) => s.date === todayStr);
   const todayMs = todaySessions.reduce((a, s) => a + s.duration, 0) + (running ? elapsed : 0);
 
@@ -137,10 +203,8 @@ export default function App() {
     .sort((a, b) => a[0].localeCompare(b[0]));
   const maxBar = Math.max(...monthBars.map(([, v]) => v), 1);
 
-  // Task Selection from existing ones
   const existingTasks = Array.from(new Set(sessions.map(s => s.task))).filter(Boolean).sort();
 
-  // Task detail stats (current month)
   const taskStats = monthSessions.reduce((acc, s) => {
     acc[s.task] = (acc[s.task] || 0) + s.duration;
     return acc;
@@ -148,7 +212,6 @@ export default function App() {
   const sortedTaskStats = Object.entries(taskStats).sort((a, b) => b[1] - a[1]);
   const maxTaskBar = Math.max(...Object.values(taskStats), 1);
 
-  // Monthly stats (current year)
   const yearStr = String(yr);
   const yearSessions = sessions.filter(s => s.date.startsWith(yearStr));
   const monthlyTotals = Array(12).fill(0);
@@ -157,6 +220,45 @@ export default function App() {
     monthlyTotals[m] += s.duration;
   });
   const maxMonthBar = Math.max(...monthlyTotals, 1);
+
+  if (authLoading) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "'DM Sans', sans-serif", color: "#AEA598", fontSize: 14 }}>
+      Authenticating…
+    </div>
+  );
+
+  if (!user) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#F3EDE2" }}>
+      <style>{`
+        .login-card { background: #FDFAF5; padding: 40px; border-radius: 14px; border: 1px solid #DDD6C8; box-shadow: 0 6px 24px rgba(28,24,20,0.1); width: 100%; max-width: 360px; text-align: center; }
+        .login-title { font-family: 'Fraunces', serif; font-size: 28px; margin-bottom: 24px; color: #1C1814; }
+        .login-input { width: 100%; padding: 12px; margin-bottom: 16px; border: 1px solid #DDD6C8; border-radius: 9px; font-family: 'DM Sans', sans-serif; outline: none; background: #F3EDE2; }
+        .login-btn { width: 100%; padding: 12px; background: #C7572B; color: white; border: none; border-radius: 9px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+        .login-btn:hover { background: #B34D23; }
+        .error { color: #C7572B; font-size: 13px; margin-top: -8px; margin-bottom: 16px; }
+      `}</style>
+      <div className="login-card">
+        <div className="login-title">Welcome to Tempo</div>
+        <form onSubmit={handleLogin}>
+          <input 
+            className="login-input" 
+            placeholder="Username" 
+            value={loginForm.username}
+            onChange={e => setLoginForm({...loginForm, username: e.target.value})}
+          />
+          <input 
+            type="password" 
+            className="login-input" 
+            placeholder="Password" 
+            value={loginForm.password}
+            onChange={e => setLoginForm({...loginForm, password: e.target.value})}
+          />
+          {loginError && <div className="error">{loginError}</div>}
+          <button className="login-btn">Login</button>
+        </form>
+      </div>
+    </div>
+  );
 
   if (!loaded) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "'DM Sans', sans-serif", color: "#AEA598", fontSize: 14 }}>
@@ -485,7 +587,7 @@ export default function App() {
                       </div>
                     )}
                     {todaySessions.map((s) => (
-                      <div key={s.id} className="sess-item">
+                      <div key={s._id} className="sess-item">
                         <div style={{flex:1,minWidth:0}}>
                           <div className="sess-name">{s.task}</div>
                           <div className="sess-time">
@@ -494,7 +596,7 @@ export default function App() {
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:5}}>
                           <div className="sess-dur">{fmtDur(s.duration)}</div>
-                          <button className="sess-del" onClick={() => delSession(s.id)} title="Delete">×</button>
+                          <button className="sess-del" onClick={() => delSession(s._id)} title="Delete">×</button>
                         </div>
                       </div>
                     ))}
@@ -550,7 +652,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Monthly Trends - YEAR VIEW */}
             <div className="card">
               <div className="card-hd">
                 <span className="card-ttl">Monthly Trends — {yr}</span>
@@ -571,7 +672,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Task Detail breakdown - CURRENT MONTH */}
             <div className="card">
               <div className="card-hd">
                 <span className="card-ttl">Tasks — {MSHORT[mo]}</span>
@@ -615,7 +715,7 @@ export default function App() {
                 ) : (
                   <div className="scroll">
                     {viewSessions.map((s) => (
-                      <div key={s.id} className="sess-item">
+                      <div key={s._id} className="sess-item">
                         <div style={{flex:1,minWidth:0}}>
                           <div className="sess-name">{s.task}</div>
                           <div className="sess-time">
@@ -624,7 +724,7 @@ export default function App() {
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:5}}>
                           <div className="sess-dur">{fmtDur(s.duration)}</div>
-                          <button className="sess-del" onClick={() => delSession(s.id)} title="Delete">×</button>
+                          <button className="sess-del" onClick={() => delSession(s._id)} title="Delete">×</button>
                         </div>
                       </div>
                     ))}
@@ -633,7 +733,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Daily Bars - LAST 10 DAYS of current month */}
             <div className="card">
               <div className="card-hd">
                 <span className="card-ttl">Daily Detail — {MSHORT[mo]}</span>
