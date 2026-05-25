@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { parse } from 'cookie';
 
-const JWT_SECRET = 'tempo-secret-key-123';
+const JWT_SECRET = process.env.JWT_SECRET || 'tempo-fallback-secret';
 
 export default async function handler(req, res) {
   const cookies = parse(req.headers.cookie || '');

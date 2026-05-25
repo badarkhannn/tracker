@@ -1,9 +1,9 @@
-import dbConnect from '../lib/db';
-import Session from '../lib/models/Session';
+import dbConnect from '../lib/db.js';
+import Session from '../lib/models/Session.js';
 import jwt from 'jsonwebtoken';
 import { parse } from 'cookie';
 
-const JWT_SECRET = 'tempo-secret-key-123';
+const JWT_SECRET = process.env.JWT_SECRET || 'tempo-fallback-secret';
 
 export default async function handler(req, res) {
   await dbConnect();

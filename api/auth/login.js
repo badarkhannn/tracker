@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { serialize } from 'cookie';
 
-const JWT_SECRET = 'tempo-secret-key-123'; // In a real app, use an environment variable
+const JWT_SECRET = process.env.JWT_SECRET || 'tempo-fallback-secret';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {

@@ -1,9 +1,9 @@
 import mongoose from 'mongoose';
 
-const MONGODB_URI = "mongodb+srv://gitnaxt_db_user:Gl4SipoPC9IvJPfe@cluster0.mpsceiy.mongodb.net/tempo?retryWrites=true&w=majority&appName=Cluster0";
+const MONGODB_URI = process.env.MONGODB_URI;
 
 if (!MONGODB_URI) {
-  throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
+  throw new Error('Please define the MONGODB_URI environment variable inside .env.local or Vercel dashboard');
 }
 
 let cached = global.mongoose;
