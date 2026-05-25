@@ -1,12 +1,12 @@
 import jwt from 'jsonwebtoken';
+import { parse } from 'cookie';
 
 const JWT_SECRET = 'tempo-secret-key-123';
 
 export default async function handler(req, res) {
-  const cookie = req.headers.cookie;
-  if (!cookie) return res.status(401).json({ message: 'Unauthorized' });
-
-  const token = cookie.split('; ').find(row => row.startsWith('tempo_token='))?.split('=')[1];
+  const cookies = parse(req.headers.cookie || '');
+  const token = cookies.tempo_token;
+  
   if (!token) return res.status(401).json({ message: 'Unauthorized' });
 
   try {

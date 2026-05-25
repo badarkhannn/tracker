@@ -12,7 +12,12 @@ const fmtDur = (ms) => {
   const h = Math.floor(m / 60), r = m % 60;
   return r > 0 ? `${h}h ${r}m` : `${h}h`;
 };
-const toDate = (d) => d.toISOString().split("T")[0];
+const toDate = (d) => {
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${yr}-${mo}-${da}`;
+};
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MSHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const DSHORT = ["S","M","T","W","T","F","S"];
@@ -33,22 +38,32 @@ export default function App() {
   const [viewDate, setViewDate] = useState(new Date());
   const [loaded, setLoaded] = useState(false);
   
-  // Auto-updating today string
+  // Auto-updating today string using local time
   const [todayStr, setTodayStr] = useState(toDate(new Date()));
 
   const timerRef = useRef(null);
   const startRef = useRef(null);
   const baseRef = useRef(0);
 
-  // Check auth and update today every minute
+  // Check auth and update today every 30 seconds
   useEffect(() => {
     checkAuth();
     const interval = setInterval(() => {
       const now = new Date();
-      setTodayStr(toDate(now));
-    }, 60000);
+      const currentLocalToday = toDate(now);
+      if (currentLocalToday !== todayStr) {
+        setTodayStr(currentLocalToday);
+        // If the view was on the "old" today, update it to the "new" today
+        setViewDate(prev => {
+          if (toDate(prev) !== currentLocalToday) return now;
+          return prev;
+        });
+        // Also update the calendar month if needed
+        setCalMonth(now);
+      }
+    }, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [todayStr]);
 
   const checkAuth = async () => {
     try {

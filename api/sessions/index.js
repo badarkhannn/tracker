@@ -1,14 +1,15 @@
 import dbConnect from '../lib/db';
 import Session from '../lib/models/Session';
 import jwt from 'jsonwebtoken';
+import { parse } from 'cookie';
 
 const JWT_SECRET = 'tempo-secret-key-123';
 
 export default async function handler(req, res) {
   await dbConnect();
 
-  const cookie = req.headers.cookie;
-  const token = cookie?.split('; ').find(row => row.startsWith('tempo_token='))?.split('=')[1];
+  const cookies = parse(req.headers.cookie || '');
+  const token = cookies.tempo_token;
   
   if (!token) {
     return res.status(401).json({ message: 'Unauthorized' });
